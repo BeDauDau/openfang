@@ -203,7 +203,7 @@ fn fetch_unseen_emails(
 
     // Build a rustls ClientConfig with system-native root certificates.
     // This avoids any dynamic linking dependency on OpenSSL / libssl.
-    let CertificateResult { certs, errors, .. } = rustls_native_certs::load_native_certs();
+    let CertificateResult { certs, errors , .. } = rustls_native_certs::load_native_certs();
     if certs.is_empty() {
         let err_msgs: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
         return Err(format!(
@@ -239,7 +239,7 @@ fn fetch_unseen_emails(
         .map_err(|e| format!("IMAP greeting failed: {e}"))?;
 
     let mut session = client
-        .login(username, password);
+        .login(username, password)
         .map_err(|(e, _)| format!("IMAP login failed: {e}"))?;
 
     let mut results = Vec::new();
