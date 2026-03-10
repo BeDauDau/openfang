@@ -20,21 +20,6 @@ use tokio::sync::{mpsc, watch};
 use tracing::{debug, error, info, warn};
 use zeroize::Zeroizing;
 
-/// SASL PLAIN authenticator for IMAP servers that reject LOGIN
-/// (e.g., Lark/Larksuite which only advertise AUTH=PLAIN).
-struct PlainAuthenticator {
-    username: String,
-    password: String,
-}
-
-impl imap::Authenticator for PlainAuthenticator {
-    type Response = String;
-    fn process(&self, _data: &[u8]) -> Self::Response {
-        // SASL PLAIN: \0<username>\0<password>
-        format!("\x00{}\x00{}", self.username, self.password)
-    }
-}
-
 /// Reply context for email threading (In-Reply-To / Subject continuity).
 #[derive(Debug, Clone)]
 struct ReplyCtx {
@@ -211,17 +196,14 @@ fn fetch_unseen_emails(
     password: &str,
     folders: &[String],
 ) -> Result<Vec<(String, String, String, String)>, String> {
-    // let tls = native_tls::TlsConnector::builder()
-    //     .build()
-    //     .map_err(|e| format!("TLS connector error: {e}"))?;
-     use rustls::ClientConfig;
+    use rustls::ClientConfig;
     use rustls_native_certs::CertificateResult;
     use std::net::TcpStream;
     use std::sync::Arc;
 
     // Build a rustls ClientConfig with system-native root certificates.
     // This avoids any dynamic linking dependency on OpenSSL / libssl.
-    let CertificateResult { certs, errors } = rustls_native_certs::load_native_certs();
+    let CertificateResult { certs, errors , .. } = rustls_native_certs::load_native_certs();
     if certs.is_empty() {
         let err_msgs: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
         return Err(format!(
@@ -251,9 +233,6 @@ fn fetch_unseen_emails(
 
     let tls_stream = rustls::StreamOwned::new(tls_conn, tcp);
 
-    // let client = imap::connect((host, port), host, &tls)
-    //     .map_err(|e| format!("IMAP connect failed: {e}"))?;
-
     let mut client = imap::Client::new(tls_stream);
     client
         .read_greeting()
@@ -261,22 +240,7 @@ fn fetch_unseen_emails(
 
     let mut session = client
         .login(username, password)
-    // Try LOGIN first; fall back to AUTHENTICATE PLAIN for servers like Lark
-    // that reject LOGIN and only support AUTH=PLAIN (SASL).
-    let mut session = match client.login(username, password) {
-        Ok(s) => s,
-        Err((login_err, client)) => {
-            let authenticator = PlainAuthenticator {
-                username: username.to_string(),
-                password: password.to_string(),
-            };
-            client
-                .authenticate("PLAIN", &authenticator)
-                .map_err(|(e, _)| {
-                    format!("IMAP login failed: {login_err}; AUTH=PLAIN also failed: {e}")
-                })?
-        }
-    };
+        .map_err(|(e, _)| format!("IMAP login failed: {e}"))?;
 
     let mut results = Vec::new();
 
